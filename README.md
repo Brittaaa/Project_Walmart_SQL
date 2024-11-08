@@ -1,4 +1,4 @@
-# Project_Walmart_SQL
+# Project_Walmart_SQL （Under Update!!! 维护中！！！！sql文档内容更新中！！！）
 
 *NOTE: This project was inspired by **Code With Prince**\*. Dataset was retrieved from* [Kaggle Walmart Recruiting - Store Sales Forecasting](https://www.kaggle.com/c/walmart-recruiting-store-sales-forecasting).
 
