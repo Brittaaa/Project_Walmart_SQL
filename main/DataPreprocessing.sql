@@ -6,7 +6,74 @@
 -- check for "gross_margin_pct" and "rating" only (since they are not designed as NOT NULL)
 SELECT gross_margin_pct, rating
 FROM sales
-WHERE (gross_margin_pct IS NULL) OR (rating IS NULL);		-- NOTE: no missing values
+WHERE (gross_margin_pct IS NULL) OR (rating IS NULL);		-- NOTE: missing values
+
+-- deal with missing date (mean fill)  -- NOTE: python's panda, pd.interpolate(method = 'linear')
+WITH rating_means AS ( 
+	SELECT branch, city, product_line, 
+	AVG(rating) AS avg_rating 
+	FROM sales
+	WHERE rating IS NOT NULL 
+	GROUP BY branch, city, product_line 
+)
+UPDATE sales_data AS sd 
+SET rating = rm.avg_rating 			-- fill
+FROM rating_means AS rm 
+WHERE sd.rating IS NULL 
+	AND sd.branch = rm.branch 
+	AND sd.city = rm.city 
+	AND sd.product_line = rm.product_line;
+
+
+
+-- check outliers in gross_margin_pct ("3-sigma rule")
+SELECT *
+FROM sales
+WHERE ABS(gross_margin_pct - AVG(gross_margin_pct) / STDDEV(gross_margin_pct)) > 3
+	OR gross_margin_pct > 1 OR gross_margin_pct < 0;
+
+-- check outliers in gross_margin_pct ("IQR rule")
+WITH gmp_q1_q3 AS (
+	SELECT invoice_id,		-- key
+		gross_margin_pct,
+        PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY gross_margin_pct) AS gmp_ql,
+        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY gross_margin_pct) AS gmp_q3
+	FROM sales
+),
+gmp_iqr AS (						-- also can use ORDER BY gross_margin_pct LIMIT 25,1 (or 75,1) for LB and UB
+	SELECT invoice_id,
+		gross_margin_pct,
+        (gmp_q1 - 1.5*(gmp_q3 - gmp_q1)) AS gmp_lb,
+        (gmp_q3 + 1.5*(gmp_q3 - gmp_q1)) AS gmp_ub
+	FROM gmp_q1_q3
+)
+SELECT	invoice_id
+FROM gmp_q1_q3
+WHERE gross_margin_pct < gmp_lb		-- verify Y as acceptable = verify N as outliers (AND to OR)
+	OR gross_margin_pct > gmp_ub;
+
+
+
+-- check for date format consistency and correct them (add 0s in missing digits)
+WITH date_consist_check AS (
+	SELECT 	*
+    FROM sales
+    WHERE TO_DATE(date, 'YYYY-MM-DD') IS NULL		-- find date instances with unmatched format 
+) date_inconsist
+SELECT *
+FROM date_inconsist
+ORDER BY invoice_id
+
+UPDATE sales
+SET date = CONCAT(
+				LEFT(date, 4),							-- take 4 letters from LHS
+                '-',
+                LPAD(SUBSTRING(date, 6, 2), 2, '0'),	-- LPAD(*string, *total length after added, *what to fill) is to add elements from LHS
+                '-',
+                LPAD(SUBSTRING(date, 9, 2), 2, '0')
+)
+WHERE LENGTH(SUBSTRING(date_column, 6, 1)) < 2
+    OR LENGTH(SUBSTRING(date_column, 9, 1)) < 2;
 
 
 
@@ -73,7 +140,11 @@ SET month_name = MONTHNAME(date);
 
 
 
+-- add "customer_type_gender" to capture interaction effects between membership and gender for future analysis
+ALTER TABLE sales ADD COLUMN type_gender_interact VARCHAR(50);
 
+UPDATE sales
+SET type_gender_interact = CONCAT(customer_type, '-', gender);
 
 
 
